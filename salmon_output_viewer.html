@@ -1,0 +1,1710 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SALMON Output Viewer</title>
+  <style>
+    :root {
+      --bg: #f5f4ef;
+      --panel: #fffdf7;
+      --border: #d3d0c5;
+      --text: #1f2937;
+      --muted: #6b7280;
+      --accent: #1768ac;
+      --warm: #b5412f;
+      --cool: #2d6a9f;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Avenir Next", "Helvetica Neue", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(23,104,172,0.08), transparent 25%),
+        linear-gradient(180deg, #faf8f1, var(--bg));
+    }
+    .app {
+      display: grid;
+      grid-template-columns: minmax(240px, 300px) minmax(0, 1fr) minmax(260px, 320px);
+      gap: 16px;
+      padding: 16px;
+      min-height: 100vh;
+      align-items: start;
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 16px;
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.04);
+      overflow: auto;
+    }
+    h1, h2, h3 { margin: 0 0 12px; }
+    h1 { font-size: 1.4rem; }
+    h2 { font-size: 1rem; }
+    .stack { display: grid; gap: 12px; }
+    .button {
+      border: 1px solid var(--border);
+      background: white;
+      border-radius: 10px;
+      padding: 10px 12px;
+      cursor: pointer;
+      width: 100%;
+      text-align: left;
+      color: var(--text);
+    }
+    .button-primary {
+      background: var(--accent);
+      color: white;
+      border-color: var(--accent);
+    }
+    .hidden { display: none !important; }
+    .visually-hidden-input {
+      position: absolute;
+      left: -9999px;
+      width: 1px;
+      height: 1px;
+      opacity: 0;
+      pointer-events: none;
+    }
+    .dataset-list {
+      display: grid;
+      gap: 8px;
+      max-height: 65vh;
+      overflow: auto;
+    }
+    .dataset-item {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px;
+      background: white;
+      cursor: pointer;
+    }
+    .dataset-item.active {
+      border-color: var(--accent);
+      box-shadow: inset 0 0 0 1px var(--accent);
+    }
+    .dataset-meta {
+      color: var(--muted);
+      font-size: 0.85rem;
+      margin-top: 4px;
+    }
+    .viewer-grid {
+      display: grid;
+      gap: 12px;
+    }
+    .canvas-panel {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: white;
+      padding: 10px;
+    }
+    .plot-shell {
+      width: 100%;
+      min-height: 320px;
+      overflow: auto;
+    }
+    .viewer-3d {
+      width: 100%;
+      height: 340px;
+      border-radius: 8px;
+      background: white;
+      overflow: hidden;
+      position: relative;
+    }
+    .viewer-3d-status {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--muted);
+      font-size: 0.9rem;
+      text-align: center;
+      padding: 16px;
+    }
+    canvas {
+      width: 100%;
+      border-radius: 8px;
+      background: white;
+    }
+    label {
+      display: block;
+      font-size: 0.9rem;
+      margin-bottom: 6px;
+      color: var(--muted);
+    }
+    select, input[type="range"] {
+      width: 100%;
+    }
+    .summary {
+      color: var(--muted);
+      font-size: 0.9rem;
+      min-height: 1.2em;
+    }
+    .control-block {
+      padding-bottom: 12px;
+      border-bottom: 1px solid rgba(211, 208, 197, 0.6);
+    }
+    .controls-panel {
+      max-height: calc(100vh - 32px);
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+    .frame-controls {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+    @media (max-width: 1100px) {
+      .app {
+        grid-template-columns: 1fr;
+      }
+      .controls-panel {
+        max-height: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <section id="controlsPanel" class="panel stack controls-panel">
+      <div>
+        <h1>SALMON Output Viewer</h1>
+        <div class="summary" id="ingestSummary">Load SALMON outputs from standard data files or from a cube-only directory.</div>
+      </div>
+      <div class="stack">
+        <button type="button" id="selectFilesButton" class="button button-primary">Select Files (.data)</button>
+        <button type="button" id="selectDirectoryButton" class="button">Select Cube Directory</button>
+        <input id="fileInput" class="visually-hidden-input" type="file" multiple>
+        <input id="directoryInput" class="visually-hidden-input" type="file" webkitdirectory directory multiple>
+      </div>
+      <div>
+        <h2>Datasets</h2>
+        <div id="datasetList" class="dataset-list"></div>
+      </div>
+    </section>
+
+    <section class="panel stack">
+      <div>
+        <h2>Viewer</h2>
+        <div id="plotSummary" class="summary">No dataset selected.</div>
+      </div>
+      <div class="viewer-grid">
+        <div class="canvas-panel">
+          <div id="plotArea" class="plot-shell"></div>
+        </div>
+        <div class="canvas-panel">
+          <h3>3D Field</h3>
+          <div id="field3dViewer" class="viewer-3d"></div>
+          <canvas id="field3dCanvas" class="hidden" width="760" height="340"></canvas>
+        </div>
+      </div>
+      <canvas id="sliceCanvas" class="hidden" width="760" height="300"></canvas>
+      <canvas id="recordingCanvas" class="hidden" width="760" height="660"></canvas>
+    </section>
+
+    <section class="panel stack">
+      <div class="control-block">
+        <h2>Controls</h2>
+        <label for="seriesSelect">Series</label>
+        <select id="seriesSelect" multiple size="8"></select>
+      </div>
+      <div class="control-block">
+        <label for="yScaleSelect">Y Scale</label>
+        <select id="yScaleSelect">
+          <option value="linear">Linear</option>
+          <option value="log10">Log10</option>
+        </select>
+      </div>
+      <div class="control-block">
+        <label for="slicePlane">Slice Plane</label>
+        <select id="slicePlane">
+          <option value="xy">xy</option>
+          <option value="xz">xz</option>
+          <option value="yz">yz</option>
+        </select>
+      </div>
+      <div class="control-block">
+        <label for="frameSlider">Frame</label>
+        <input id="frameSlider" type="range" min="0" max="0" value="0">
+        <div id="frameLabel" class="summary">0 / 0</div>
+        <div class="frame-controls">
+          <button type="button" id="prevFrameButton" class="button">Prev</button>
+          <button type="button" id="playButton" class="button button-primary">Play</button>
+          <button type="button" id="pauseButton" class="button">Pause</button>
+          <button type="button" id="nextFrameButton" class="button">Next</button>
+          <button type="button" id="recordButton" class="button">Record</button>
+        </div>
+      </div>
+      <div class="control-block">
+        <label for="sliceIndex">Slice Index</label>
+        <input id="sliceIndex" type="range" min="0" max="0" value="0">
+        <div id="sliceIndexLabel" class="summary">0</div>
+      </div>
+      <div class="control-block">
+        <label for="thresholdSlider">Threshold</label>
+        <input id="thresholdSlider" type="range" min="0" max="100" value="15">
+        <div id="thresholdLabel" class="summary">0.15 x max(|value|)</div>
+      </div>
+      <div class="control-block">
+        <label for="isoValueSlider">Iso Value</label>
+        <input id="isoValueSlider" type="range" min="1" max="100" value="20">
+        <div id="isoValueLabel" class="summary">0.20 x max(|value|)</div>
+      </div>
+      <div class="control-block">
+        <label for="opacitySlider">Opacity</label>
+        <input id="opacitySlider" type="range" min="10" max="100" value="80">
+        <div id="opacityLabel" class="summary">0.80</div>
+      </div>
+      <div class="control-block">
+        <label for="pointSizeSlider">Point Size</label>
+        <input id="pointSizeSlider" type="range" min="1" max="8" value="3">
+        <div id="pointSizeLabel" class="summary">3 px</div>
+        <button type="button" id="resetViewButton" class="button" style="margin-top:8px;">Reset View</button>
+      </div>
+      <div class="stack">
+        <button type="button" id="exportCsvButton" class="button">Export CSV</button>
+        <button type="button" id="exportPngButton" class="button">Export PNG</button>
+      </div>
+    </section>
+  </div>
+
+  <script src="./vendor/3Dmol-min.js"></script>
+  <script>
+    let fieldViewer = null;
+
+    function buildInitialViewerState() {
+      return {
+        metadata: {
+          schema_version: '1.0',
+          app_version: '0.1',
+          source_files: [],
+          source_directories: []
+        },
+        datasets: [],
+        viewer: {
+          active_dataset_id: '',
+          active_series: [],
+          line_slots: [
+            { dataset_id: '', active_series: [], y_scale: 'linear' },
+            { dataset_id: '', active_series: [], y_scale: 'linear' }
+          ],
+          active_line_slot_index: 0,
+          next_line_slot_index: 0,
+          plot_mode: 'line',
+          color_map: 'red-blue',
+          frame_index: 0,
+          fps: 4,
+          is_playing: false,
+          animation_handle: null,
+          is_recording: false,
+          media_recorder: null,
+          record_chunks: [],
+          threshold_ratio: 0.15,
+          iso_ratio: 0.20,
+          iso_opacity: 0.80,
+          point_size: 3,
+          rotation_y: 0,
+          rotation_x: 0,
+          pan_x: 0,
+          pan_y: 0,
+          zoom_3d: 1,
+          y_scale: 'linear',
+          slice_plane: 'xy',
+          slice_index: 0
+        }
+      };
+    }
+
+    var state = buildInitialViewerState();
+    globalThis.state = state;
+
+    function nextDatasetId(prefix = 'dataset') {
+      return `${prefix}_${Math.random().toString(36).slice(2, 9)}`;
+    }
+
+    function detectDatasetKind(filename, text) {
+      const lower = filename.toLowerCase();
+      const head = String(text || '').split(/\r?\n/).slice(0, 6).join('\n');
+      const isSsbeHeader = /Real time calculation by SBE/i.test(head)
+        || /Ac_ext|E_ext|Ac_tot|E_tot|Jm/.test(head);
+      if (/_ovlp\.data$/.test(lower) || /#\s*Projection/i.test(head)) return 'ovlp_table';
+      if (isSsbeHeader && /_sbe_rt\.data$/.test(lower)) return 'ssbe_table';
+      if (/_at_point_rt\.data$/.test(lower) && /#\s*E:\s*Electric field/i.test(head)) return 'maxwell_point_rt';
+      if (/_integral_rt\.data$/.test(lower) && /#\s*IE:\s*Plane integration of electric field/i.test(head)) return 'maxwell_plane_integral_rt';
+      if (lower.endsWith('_rt_energy.data')) return 'rt_energy';
+      if (lower.endsWith('_rt.data')) return 'rt_series';
+      if (lower.endsWith('_pulse.data')) return 'pulse';
+      if (lower.endsWith('_response.data')) return 'response';
+      if (lower.endsWith('.cube')) return 'cube_field';
+      if (isSsbeHeader) return 'ssbe_table';
+      return 'unknown';
+    }
+
+    function groupSequentialFiles(files) {
+      const groups = new Map();
+      files.forEach((file) => {
+        const leadingIterationMatch = file.name.match(/^it(\d+)_([^/]+)(\.[^.]+)$/i);
+        if (leadingIterationMatch) {
+          const sequenceLabel = leadingIterationMatch[2];
+          const extension = leadingIterationMatch[3];
+          const key = `lead:${sequenceLabel}|${extension}`;
+          if (!groups.has(key)) {
+            groups.set(key, {
+              prefix: `${sequenceLabel}_`,
+              extension,
+              sequenceId: `${sequenceLabel}${extension}`,
+              seriesLabel: sequenceLabel,
+              files: []
+            });
+          }
+          groups.get(key).files.push({ file, sortKey: Number(leadingIterationMatch[1]) });
+          return;
+        }
+        const trailingMatch = file.name.match(/^(.*?)(\d+)(\.[^.]+)$/);
+        if (!trailingMatch) {
+          groups.set(`single:${file.name}`, { prefix: file.name, extension: '', files: [file] });
+          return;
+        }
+        const key = `${trailingMatch[1]}|${trailingMatch[3]}`;
+        if (!groups.has(key)) {
+          groups.set(key, {
+            prefix: trailingMatch[1],
+            extension: trailingMatch[3],
+            sequenceId: `${trailingMatch[1]}${trailingMatch[3]}`,
+            seriesLabel: String(trailingMatch[1]).replace(/[_-]+$/, ''),
+            files: []
+          });
+        }
+        groups.get(key).files.push({ file, sortKey: Number(trailingMatch[2]) });
+      });
+      return [...groups.values()].map((group) => ({
+        ...group,
+        files: group.files
+          .sort((a, b) => {
+            if (Number.isFinite(a.sortKey) && Number.isFinite(b.sortKey) && a.sortKey !== b.sortKey) {
+              return a.sortKey - b.sortKey;
+            }
+            return a.file.name.localeCompare(b.file.name, undefined, { numeric: true });
+          })
+          .map((entry) => entry.file)
+      }));
+    }
+
+    function tokenizeDataLines(text) {
+      return String(text || '')
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line && !line.startsWith('#'))
+        .map((line) => line.split(/\s+/).map(Number))
+        .filter((row) => row.every((value) => Number.isFinite(value)));
+    }
+
+    function extractHeaderLabels(text) {
+      const commentLines = String(text || '')
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line.startsWith('#'));
+      const latest = commentLines[commentLines.length - 1] || '';
+      const matches = [...latest.matchAll(/\d+:(.+?)\[(.*?)\]/g)];
+      return matches.map((match) => ({
+        label: match[1].trim(),
+        unit: match[2].trim()
+      }));
+    }
+
+    function buildSeriesDataset(kind, filename, title, labels, rows) {
+      const xLabel = labels[0]?.label || 'x';
+      const xUnit = labels[0]?.unit || '';
+      const series = [];
+      for (let column = 1; column < (rows[0]?.length || 0); column += 1) {
+        const label = labels[column]?.label || `series_${column}`;
+        const values = rows.map((row) => [row[0], row[column]]);
+        series.push({ name: label, values });
+      }
+      return {
+        id: nextDatasetId(kind),
+        kind,
+        filename,
+        title,
+        source: {
+          mode: 'file',
+          sequence_id: null,
+          frame_order: null
+        },
+        axes: {
+          x: { label: xLabel, unit: xUnit },
+          y: { label: 'Value', unit: '' }
+        },
+        series,
+        frames: [],
+        raw_headers: labels,
+        notes: []
+      };
+    }
+
+    function parseRtSeries(text, filename) {
+      return buildSeriesDataset('rt_series', filename, 'RT Series', extractHeaderLabels(text), tokenizeDataLines(text));
+    }
+
+    function parseRtEnergy(text, filename) {
+      return buildSeriesDataset('rt_energy', filename, 'RT Energy', extractHeaderLabels(text), tokenizeDataLines(text));
+    }
+
+    function parsePulse(text, filename) {
+      return buildSeriesDataset('pulse', filename, 'Pulse', extractHeaderLabels(text), tokenizeDataLines(text));
+    }
+
+    function parseResponse(text, filename) {
+      return buildSeriesDataset('response', filename, 'Response', extractHeaderLabels(text), tokenizeDataLines(text));
+    }
+
+    function parseSsbeTable(text, filename) {
+      return buildSeriesDataset('ssbe_table', filename, 'SBE Table', extractHeaderLabels(text), tokenizeDataLines(text));
+    }
+
+    function parseOvlpTable(text, filename) {
+      const rows = tokenizeDataLines(text);
+      const labels = extractHeaderLabels(text);
+      const series = [];
+      const columnCount = rows[0]?.length || 0;
+      for (let column = 1; column < columnCount; column += 1) {
+        series.push({
+          name: `ovlp_occup_${column}`,
+          values: rows.map((row) => [row[0], row[column]])
+        });
+      }
+      return {
+        id: nextDatasetId('ovlp'),
+        kind: 'ovlp_table',
+        filename,
+        title: 'Projection Overlap',
+        source: {
+          mode: 'file',
+          sequence_id: null,
+          frame_order: null
+        },
+        axes: {
+          x: { label: labels[0]?.label || 'ik', unit: labels[0]?.unit || 'none' },
+          y: { label: 'Occupation', unit: 'none' }
+        },
+        series,
+        frames: [],
+        raw_headers: labels,
+        notes: []
+      };
+    }
+
+    function parseCubeField(text, filename) {
+      const lines = String(text || '').trim().split(/\r?\n/);
+      if (lines.length < 7) {
+        throw new Error(`Cube file is too short: ${filename}`);
+      }
+      const atomLine = lines[2].trim().split(/\s+/).map(Number);
+      const natoms = Math.abs(atomLine[0]);
+      const xLine = lines[3].trim().split(/\s+/).map(Number);
+      const yLine = lines[4].trim().split(/\s+/).map(Number);
+      const zLine = lines[5].trim().split(/\s+/).map(Number);
+      const atomRows = lines.slice(6, 6 + natoms).map((line) => line.trim().split(/\s+/).map(Number));
+      const valueLines = lines.slice(6 + natoms);
+      const values = valueLines.flatMap((line) => line.trim().split(/\s+/).map(Number)).filter((value) => Number.isFinite(value));
+      return {
+        id: nextDatasetId('cube'),
+        kind: 'cube_field',
+        filename,
+        title: 'Cube Field',
+        source: {
+          mode: 'file',
+          sequence_id: null,
+          frame_order: null
+        },
+        axes: {
+          x: { label: 'x', unit: 'grid' },
+          y: { label: 'y', unit: 'grid' }
+        },
+        series: [],
+        frames: [],
+        raw_headers: [],
+        notes: [],
+        atoms: atomRows.map((row) => ({
+          atomic_number: row[0],
+          charge: row[1],
+          x: row[2],
+          y: row[3],
+          z: row[4]
+        })),
+        grid: {
+          nx: xLine[0],
+          ny: yLine[0],
+          nz: zLine[0],
+          origin: atomLine.slice(1, 4),
+          axes: [xLine.slice(1, 4), yLine.slice(1, 4), zLine.slice(1, 4)]
+        },
+        raw_cube_text: text,
+        field: {
+          values
+        },
+        slice: {
+          plane: 'xy',
+          index: Math.max(0, Math.floor(xLine[0] / 2))
+        }
+      };
+    }
+
+    function getCubeAtomElements(dataset) {
+      const periodicTable = {
+        1: 'H', 2: 'He', 3: 'Li', 4: 'Be', 5: 'B', 6: 'C', 7: 'N', 8: 'O', 9: 'F', 10: 'Ne',
+        11: 'Na', 12: 'Mg', 13: 'Al', 14: 'Si', 15: 'P', 16: 'S', 17: 'Cl', 18: 'Ar'
+      };
+      return (dataset.atoms || []).map((atom) => periodicTable[atom.atomic_number] || `Z${atom.atomic_number}`);
+    }
+
+    function initializeFieldViewer() {
+      if (fieldViewer || typeof $3Dmol === 'undefined') return fieldViewer;
+      const container = document.getElementById('field3dViewer');
+      if (!container) return null;
+      fieldViewer = $3Dmol.createViewer(container, { backgroundColor: 'white' });
+      return fieldViewer;
+    }
+
+    function buildCellEdges(dataset) {
+      const grid = dataset.grid;
+      if (!grid) return [];
+      const origin = grid.origin || [0, 0, 0];
+      const a = (grid.axes?.[0] || [0, 0, 0]).map((v) => v * grid.nx);
+      const b = (grid.axes?.[1] || [0, 0, 0]).map((v) => v * grid.ny);
+      const c = (grid.axes?.[2] || [0, 0, 0]).map((v) => v * grid.nz);
+      const add = (u, v) => [u[0] + v[0], u[1] + v[1], u[2] + v[2]];
+      const corners = {
+        o: origin,
+        a: add(origin, a),
+        b: add(origin, b),
+        c: add(origin, c),
+        ab: add(add(origin, a), b),
+        ac: add(add(origin, a), c),
+        bc: add(add(origin, b), c),
+        abc: add(add(add(origin, a), b), c)
+      };
+      return [
+        ['o', 'a'], ['o', 'b'], ['o', 'c'],
+        ['a', 'ab'], ['a', 'ac'],
+        ['b', 'ab'], ['b', 'bc'],
+        ['c', 'ac'], ['c', 'bc'],
+        ['ab', 'abc'], ['ac', 'abc'], ['bc', 'abc']
+      ].map(([from, to]) => ({ from: corners[from], to: corners[to] }));
+    }
+
+    function renderCubeSurface(dataset) {
+      const container = document.getElementById('field3dViewer');
+      const viewer = initializeFieldViewer();
+      if (!viewer || !dataset?.raw_cube_text) {
+        if (container) {
+          container.innerHTML = '<div class="viewer-3d-status">3D isosurface viewer could not be initialized. The local browser may not have loaded 3Dmol.js.</div>';
+        }
+        drawPointCloud(dataset);
+        return;
+      }
+      viewer.clear();
+      const model = viewer.addModel(dataset.raw_cube_text, 'cube');
+      viewer.setStyle({}, { sphere: { scale: 0.32, colorscheme: 'Jmol' }, stick: { radius: 0.12, colorscheme: 'Jmol' } });
+      const maxAbs = Math.max(...dataset.field.values.map((value) => Math.abs(value)), 1e-12);
+      const isoValue = maxAbs * Math.max(1e-4, state.viewer.iso_ratio || 0.2);
+      const isoOpacity = Math.min(1, Math.max(0.05, state.viewer.iso_opacity || 0.8));
+      viewer.addVolumetricData(dataset.raw_cube_text, 'cube', { isoval: isoValue, color: '#b5412f', opacity: isoOpacity });
+      viewer.addVolumetricData(dataset.raw_cube_text, 'cube', { isoval: -isoValue, color: '#2d6a9f', opacity: isoOpacity });
+      buildCellEdges(dataset).forEach((edge) => {
+        viewer.addLine({
+          start: { x: edge.from[0], y: edge.from[1], z: edge.from[2] },
+          end: { x: edge.to[0], y: edge.to[1], z: edge.to[2] },
+          color: '#64748b',
+          dashed: false
+        });
+      });
+      if (!viewer._salmon_has_view) {
+        viewer.zoomTo();
+        viewer._salmon_has_view = true;
+      } else {
+        viewer.render();
+      }
+      viewer.render();
+      const canvas = document.getElementById('field3dCanvas');
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#6b7280';
+      ctx.fillText(`Atoms: ${getCubeAtomElements(dataset).join(', ') || 'none'}`, 12, 20);
+      ctx.fillText(`Iso: ${isoValue.toExponential(2)}`, 12, 38);
+      ctx.fillText(`Opacity: ${isoOpacity.toFixed(2)}`, 12, 56);
+    }
+
+    function buildCubeSequenceDataset(frameDatasets, sequenceId, sequenceLabel = '') {
+      const sortedFrames = [...(frameDatasets || [])].sort((a, b) => {
+        const aOrder = a.source?.frame_order ?? 0;
+        const bOrder = b.source?.frame_order ?? 0;
+        return aOrder - bOrder;
+      });
+      const first = sortedFrames[0] || null;
+      const resolvedSequenceLabel = String(sequenceLabel || sequenceId || first?.filename || 'cube_sequence')
+        .replace(/\.[^.]+$/, '')
+        .replace(/[_-]+$/, '');
+      return {
+        id: nextDatasetId('cube_sequence'),
+        kind: 'cube_sequence',
+        filename: sequenceId,
+        title: resolvedSequenceLabel,
+        sequence_label: resolvedSequenceLabel,
+        source: {
+          mode: 'directory',
+          sequence_id: sequenceId,
+          frame_order: null
+        },
+        axes: first?.axes || {
+          x: { label: 'x', unit: 'grid' },
+          y: { label: 'y', unit: 'grid' }
+        },
+        series: [],
+        frames: sortedFrames.map((frame, index) => ({
+          index,
+          filename: frame.filename,
+          raw_cube_text: frame.raw_cube_text,
+          atoms: frame.atoms,
+          field: frame.field,
+          grid: frame.grid
+        })),
+        pending_files: [],
+        raw_headers: [],
+        notes: [],
+        grid: first?.grid || null,
+        slice: {
+          plane: 'xy',
+          index: Math.max(0, Math.floor((first?.grid?.nz || 1) / 2))
+        }
+      };
+    }
+
+    function buildDeferredCubeSequenceDataset(files, sequenceId, sequenceLabel = '') {
+      const dataset = buildCubeSequenceDataset([], sequenceId, sequenceLabel);
+      dataset.pending_files = [...files];
+      dataset.notes = ['Deferred cube sequence. Frames will be parsed when selected.'];
+      return dataset;
+    }
+
+    function inferDatasetTitle(kind, filename) {
+      const titles = {
+        rt_series: 'RT Series',
+        rt_energy: 'RT Energy',
+        pulse: 'Pulse Spectrum',
+        response: 'Response Spectrum',
+        ssbe_table: 'SBE Table',
+        ovlp_table: 'Projection Overlap',
+        maxwell_point_rt: 'Maxwell Point RT',
+        maxwell_plane_integral_rt: 'Maxwell Plane Integral RT',
+        cube_field: 'Cube Field',
+        cube_sequence: 'Cube Sequence'
+      };
+      return titles[kind] || filename;
+    }
+
+    function parseFileByKind(file, text, mode = 'file', sequenceId = null, frameOrder = null) {
+      const kind = detectDatasetKind(file.name, text);
+      const parsers = {
+        rt_series: parseRtSeries,
+        rt_energy: parseRtEnergy,
+        pulse: parsePulse,
+        response: parseResponse,
+        ssbe_table: parseSsbeTable,
+        ovlp_table: parseOvlpTable,
+        maxwell_point_rt: parseRtSeries,
+        maxwell_plane_integral_rt: parseRtSeries,
+        cube_field: parseCubeField
+      };
+      const parser = parsers[kind];
+      if (!parser) {
+        return {
+          id: nextDatasetId('unknown'),
+          kind: 'unknown',
+          filename: file.name,
+          title: file.name,
+          source: { mode, sequence_id: sequenceId, frame_order: frameOrder },
+          axes: { x: { label: 'x', unit: '' }, y: { label: 'y', unit: '' } },
+          series: [],
+          frames: [],
+          raw_headers: [],
+          notes: ['Unsupported file type']
+        };
+      }
+      const dataset = parser(text, file.name);
+      dataset.source = { mode, sequence_id: sequenceId, frame_order: frameOrder };
+      dataset.title = inferDatasetTitle(kind, file.name);
+      dataset.kind = kind;
+      return dataset;
+    }
+
+    function datasetLabel(dataset) {
+      return `${dataset.filename} (${dataset.kind})`;
+    }
+
+    function readFileTextWithFileReader(file) {
+      return new Promise((resolve, reject) => {
+        if (typeof FileReader === 'undefined') {
+          reject(new Error('FileReader is not available in this browser.'));
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = () => reject(reader.error || new Error('Failed to read file.'));
+        reader.readAsText(file);
+      });
+    }
+
+    async function readFileText(file, timeoutMs = 1500) {
+      if (file && typeof file.text === 'function') {
+        try {
+          return await Promise.race([
+            file.text(),
+            new Promise((_, reject) => {
+              setTimeout(() => reject(new Error('file.text() timed out')), timeoutMs);
+            })
+          ]);
+        } catch (error) {
+          return readFileTextWithFileReader(file);
+        }
+      }
+      return readFileTextWithFileReader(file);
+    }
+
+    function getDatasetSourceKey(dataset) {
+      if (!dataset) return '';
+      if (dataset.source?.mode === 'directory') {
+        return `${dataset.kind}:${dataset.source.sequence_id || dataset.filename}`;
+      }
+      return `${dataset.kind}:${dataset.filename}`;
+    }
+
+    function getActiveDataset(currentState = state) {
+      return currentState.datasets.find((dataset) => dataset.id === currentState.viewer.active_dataset_id) || null;
+    }
+
+    function isLineDataset(dataset) {
+      return !!dataset && dataset.kind !== 'cube_field' && dataset.kind !== 'cube_sequence';
+    }
+
+    function getDatasetById(datasetId, currentState = state) {
+      return currentState.datasets.find((dataset) => dataset.id === datasetId) || null;
+    }
+
+    function getActiveLineSlot(currentState = state) {
+      return currentState.viewer.line_slots?.[currentState.viewer.active_line_slot_index] || null;
+    }
+
+    function getLineSlotForDataset(datasetId, currentState = state) {
+      return (currentState.viewer.line_slots || []).find((slot) => slot.dataset_id === datasetId) || null;
+    }
+
+    function assignLineDatasetToSlot(dataset) {
+      if (!isLineDataset(dataset)) return -1;
+      const slots = state.viewer.line_slots || [];
+      slots.forEach((slot) => {
+        if (slot.dataset_id && !getDatasetById(slot.dataset_id)) {
+          slot.dataset_id = '';
+          slot.active_series = [];
+          slot.y_scale = 'linear';
+        }
+      });
+      const existingIndex = slots.findIndex((slot) => slot.dataset_id === dataset.id);
+      if (existingIndex >= 0) {
+        state.viewer.active_line_slot_index = existingIndex;
+        return existingIndex;
+      }
+      const emptyIndex = slots.findIndex((slot) => !slot.dataset_id);
+      const slotIndex = emptyIndex >= 0 ? emptyIndex : (state.viewer.next_line_slot_index || 0) % Math.max(1, slots.length);
+      slots[slotIndex] = {
+        dataset_id: dataset.id,
+        active_series: dataset.series.slice(0, 1).map((entry) => entry.name),
+        y_scale: 'linear'
+      };
+      state.viewer.active_line_slot_index = slotIndex;
+      state.viewer.next_line_slot_index = (slotIndex + 1) % Math.max(1, slots.length);
+      return slotIndex;
+    }
+
+    function getFrameAwareDataset(dataset, currentState = state) {
+      if (!dataset) return null;
+      if (dataset.kind !== 'cube_sequence') return dataset;
+      if (!dataset.frames.length) return null;
+      const frameCount = dataset.frames.length;
+      const frameIndex = Math.min(currentState.viewer.frame_index, Math.max(0, frameCount - 1));
+      const frame = dataset.frames[frameIndex];
+      return {
+        ...dataset,
+        kind: 'cube_field',
+        filename: frame.filename,
+        raw_cube_text: frame.raw_cube_text,
+        atoms: frame.atoms,
+        field: frame.field,
+        grid: frame.grid
+      };
+    }
+
+    async function ensureDatasetMaterialized(dataset) {
+      if (!dataset || dataset.kind !== 'cube_sequence' || !Array.isArray(dataset.pending_files) || !dataset.pending_files.length) {
+        return dataset;
+      }
+      const parsedFrames = [];
+      const skipped = [];
+      for (let index = 0; index < dataset.pending_files.length; index += 1) {
+        const file = dataset.pending_files[index];
+        try {
+          const text = await readFileText(file);
+          const parsed = parseFileByKind(file, text, 'directory', dataset.source?.sequence_id || dataset.filename, index);
+          if (parsed.kind === 'cube_field') {
+            parsedFrames.push(parsed);
+          } else {
+            skipped.push(`${file.name}: unsupported cube-sequence member`);
+          }
+        } catch (error) {
+          skipped.push(`${file.name}: ${error.message}`);
+        }
+      }
+      const materialized = buildCubeSequenceDataset(
+        parsedFrames,
+        dataset.source?.sequence_id || dataset.filename,
+        dataset.sequence_label || dataset.title
+      );
+      dataset.axes = materialized.axes;
+      dataset.frames = materialized.frames;
+      dataset.grid = materialized.grid;
+      dataset.slice = materialized.slice;
+      dataset.pending_files = [];
+      if (skipped.length) {
+        dataset.notes = [...(dataset.notes || []), ...skipped];
+      }
+      return dataset;
+    }
+
+    function renderDatasetList() {
+      const container = document.getElementById('datasetList');
+      if (!state.datasets.length) {
+        container.innerHTML = '<div class="dataset-meta">No datasets loaded.</div>';
+        return;
+      }
+      container.innerHTML = state.datasets.map((dataset) => `
+        <button class="dataset-item ${dataset.id === state.viewer.active_dataset_id ? 'active' : ''}" data-dataset-id="${dataset.id}" type="button">
+          <div>${dataset.sequence_label || dataset.title || dataset.filename}</div>
+          <div class="dataset-meta">${dataset.kind}${dataset.kind === 'cube_sequence' ? ` | ${(dataset.frames.length || dataset.pending_files?.length || 0)} frames` : ''}${dataset.series.length ? ` | ${dataset.series.length} series` : ''}${dataset.grid ? ` | ${dataset.grid.nx}x${dataset.grid.ny}x${dataset.grid.nz}` : ''}${dataset.pending_files?.length ? ' | deferred' : ''}</div>
+        </button>
+      `).join('');
+      [...container.querySelectorAll?.('.dataset-item') || []].forEach((button) => {
+        button.addEventListener('click', async () => {
+          state.viewer.active_dataset_id = button.dataset.datasetId;
+          const dataset = getActiveDataset();
+          await ensureDatasetMaterialized(dataset);
+          if (isLineDataset(dataset)) {
+            const slotIndex = assignLineDatasetToSlot(dataset);
+            state.viewer.active_series = [...(state.viewer.line_slots[slotIndex]?.active_series || [])];
+            state.viewer.y_scale = state.viewer.line_slots[slotIndex]?.y_scale || 'linear';
+          } else {
+            state.viewer.active_series = dataset?.series?.slice(0, 1).map((entry) => entry.name) || [];
+          }
+          updateControls();
+          renderDatasetList();
+          renderViewer(state);
+        });
+      });
+    }
+
+    function syncSeriesSelectFromState() {
+      const seriesSelect = document.getElementById('seriesSelect');
+      Array.from(seriesSelect?.options || []).forEach((option) => {
+        option.selected = state.viewer.active_series.includes(option.value);
+      });
+    }
+
+    function toggleLegendSeries(seriesName, slotIndex = state.viewer.active_line_slot_index) {
+      const slot = state.viewer.line_slots?.[slotIndex];
+      const current = slot?.active_series || [];
+      if (current.includes(seriesName)) {
+        slot.active_series = current.filter((name) => name !== seriesName);
+      } else {
+        slot.active_series = [...current, seriesName];
+      }
+      if (slotIndex === state.viewer.active_line_slot_index) {
+        state.viewer.active_series = [...slot.active_series];
+      }
+      syncSeriesSelectFromState();
+      renderViewer(state);
+    }
+
+    function buildLinePlotMarkup(dataset, activeSeriesNames, yScale, slotIndex) {
+      const activeSeries = dataset.series.filter((series) => activeSeriesNames.includes(series.name));
+      if (!activeSeries.length) {
+        return `<div class="summary">No series selected.</div>`;
+      }
+      const transformedSeries = activeSeries.map((series) => ({
+        ...series,
+        values: series.values.filter((point) => yScale !== 'log10' || point[1] > 0)
+      })).filter((series) => series.values.length > 0);
+      if (!transformedSeries.length) {
+        return `<div class="summary">No positive values available for log-scale plotting.</div>`;
+      }
+      const allPoints = transformedSeries.flatMap((series) => series.values).map((point) => [
+        point[0],
+        yScale === 'log10' ? Math.log10(point[1]) : point[1]
+      ]);
+      const xMin = Math.min(...allPoints.map((point) => point[0]));
+      const xMax = Math.max(...allPoints.map((point) => point[0]));
+      const yMin = Math.min(...allPoints.map((point) => point[1]));
+      const yMax = Math.max(...allPoints.map((point) => point[1]));
+      const width = 760;
+      const height = 340;
+      const padLeft = 64;
+      const padRight = 28;
+      const padTop = 24;
+      const padBottom = 72;
+      const tickCount = 5;
+      const colors = ['#1768ac', '#b5412f', '#2d6a9f', '#7c4d1b'];
+      const toX = (value) => padLeft + ((value - xMin) / Math.max(1e-12, xMax - xMin)) * (width - padLeft - padRight);
+      const toY = (value) => height - padBottom - ((value - yMin) / Math.max(1e-12, yMax - yMin)) * (height - padTop - padBottom);
+      const paths = transformedSeries.map((series, index) => {
+        const d = series.values.map((point, pointIndex) => {
+          const yValue = yScale === 'log10' ? Math.log10(point[1]) : point[1];
+          return `${pointIndex === 0 ? 'M' : 'L'} ${toX(point[0]).toFixed(2)} ${toY(yValue).toFixed(2)}`;
+        }).join(' ');
+        return `<path d="${d}" fill="none" stroke="${colors[index % colors.length]}" stroke-width="2" />`;
+      }).join('');
+      const legend = transformedSeries.map((series, index) => {
+        const color = colors[index % colors.length];
+        return `
+        <g class="legend-item" data-slot-index="${slotIndex}" data-series-name="${series.name}" transform="translate(${padLeft + index * 150}, ${padTop - 8})" style="cursor:pointer; opacity:1.0;">
+          <line x1="0" y1="0" x2="16" y2="0" stroke="${color}" stroke-width="2"></line>
+          <text x="22" y="4" font-size="11" fill="#4b5563">${series.name}</text>
+        </g>
+      `;
+      }).join('');
+      const xTicks = Array.from({ length: tickCount }, (_, index) => {
+        const ratio = tickCount === 1 ? 0 : index / (tickCount - 1);
+        const value = xMin + ratio * (xMax - xMin);
+        const x = toX(value);
+        return `
+          <line x1="${x.toFixed(2)}" y1="${height - padBottom}" x2="${x.toFixed(2)}" y2="${height - padBottom + 6}" stroke="#9ca3af" />
+          <text class="tick-label" x="${x.toFixed(2)}" y="${height - padBottom + 20}" text-anchor="middle" font-size="11" fill="#6b7280">${value.toFixed(2)}</text>
+        `;
+      }).join('');
+      const yTicks = Array.from({ length: tickCount }, (_, index) => {
+        const ratio = tickCount === 1 ? 0 : index / (tickCount - 1);
+        const value = yMin + ratio * (yMax - yMin);
+        const y = toY(value);
+        const label = yScale === 'log10' ? (10 ** value).toExponential(1) : value.toFixed(2);
+        return `
+          <line x1="${padLeft - 6}" y1="${y.toFixed(2)}" x2="${padLeft}" y2="${y.toFixed(2)}" stroke="#9ca3af" />
+          <text class="tick-label" x="${padLeft - 10}" y="${(y + 4).toFixed(2)}" text-anchor="end" font-size="11" fill="#6b7280">${label}</text>
+        `;
+      }).join('');
+      return `
+        <svg viewBox="0 0 ${width} ${height}" width="100%" height="320" role="img" aria-label="${dataset.filename}">
+          <rect x="0" y="0" width="${width}" height="${height}" fill="#ffffff" />
+          <line x1="${padLeft}" y1="${height - padBottom}" x2="${width - padRight}" y2="${height - padBottom}" stroke="#9ca3af" />
+          <line x1="${padLeft}" y1="${padTop}" x2="${padLeft}" y2="${height - padBottom}" stroke="#9ca3af" />
+          ${xTicks}
+          ${yTicks}
+          <text x="${(padLeft + width - padRight) / 2}" y="${height - 16}" text-anchor="middle" font-size="12" fill="#4b5563">${dataset.axes.x.label}${dataset.axes.x.unit ? ` [${dataset.axes.x.unit}]` : ''}</text>
+          <text x="18" y="${(padTop + height - padBottom) / 2}" text-anchor="middle" font-size="12" fill="#4b5563" transform="rotate(-90 18 ${(padTop + height - padBottom) / 2})">${yScale === 'log10' ? `Log10(${dataset.axes.y.label})` : dataset.axes.y.label}${dataset.axes.y.unit ? ` [${dataset.axes.y.unit}]` : ''}</text>
+          ${legend}
+          ${paths}
+        </svg>
+      `;
+    }
+
+    function renderLineViewers(currentState = state) {
+      const plotArea = document.getElementById('plotArea');
+      const slots = currentState.viewer.line_slots || [];
+      const panels = slots.map((slot, index) => {
+        const dataset = getDatasetById(slot.dataset_id, currentState);
+        const title = dataset ? (dataset.title || dataset.filename) : `Viewer ${index + 1}`;
+        const content = dataset
+          ? buildLinePlotMarkup(dataset, slot.active_series || [], slot.y_scale || 'linear', index)
+          : '<div class="summary">No dataset assigned.</div>';
+        return `<div class="canvas-panel" data-slot-index="${index}">
+          <h3>Viewer ${index + 1}</h3>
+          <div class="summary">${title}</div>
+          <div class="plot-shell">${content}</div>
+        </div>`;
+      }).join('');
+      plotArea.innerHTML = `<div class="viewer-grid">${panels}</div>`;
+      if (typeof plotArea.querySelectorAll === 'function') {
+        Array.from(plotArea.querySelectorAll('.legend-item')).forEach((element) => {
+          element.addEventListener('click', () => {
+            toggleLegendSeries(element.dataset.seriesName, Number(element.dataset.slotIndex));
+          });
+        });
+      }
+    }
+
+    function buildPointCloud(dataset) {
+      const values = dataset.field.values;
+      const maxAbs = Math.max(...values.map((value) => Math.abs(value)), 1e-12);
+      const threshold = maxAbs * state.viewer.threshold_ratio;
+      const points = [];
+      const { nx, ny, nz } = dataset.grid;
+      let idx = 0;
+      for (let ix = 0; ix < nx; ix += 1) {
+        for (let iy = 0; iy < ny; iy += 1) {
+          for (let iz = 0; iz < nz; iz += 1) {
+            const value = values[idx++];
+            if (Math.abs(value) < threshold) {
+              continue;
+            }
+            points.push({ x: ix, y: iy, z: iz, value });
+          }
+        }
+      }
+      return { points, threshold, maxAbs };
+    }
+
+    function projectPoint3D(point, currentState = state, width = 760, height = 340) {
+      const viewer = currentState.viewer || {};
+      const zoom = viewer.zoom_3d || 1;
+      const yaw = viewer.rotation_y || 0;
+      const pitch = viewer.rotation_x || 0;
+      const panX = viewer.pan_x || 0;
+      const panY = viewer.pan_y || 0;
+
+      const centered = {
+        x: point.x - 0.5,
+        y: point.y - 0.5,
+        z: point.z - 0.5
+      };
+
+      const cosY = Math.cos(yaw);
+      const sinY = Math.sin(yaw);
+      const yawX = centered.x * cosY + centered.z * sinY;
+      const yawZ = -centered.x * sinY + centered.z * cosY;
+
+      const cosX = Math.cos(pitch);
+      const sinX = Math.sin(pitch);
+      const pitchY = centered.y * cosX - yawZ * sinX;
+      const pitchZ = centered.y * sinX + yawZ * cosX;
+
+      const baseScale = 140 * zoom;
+      return {
+        x: width * 0.5 + panX + yawX * baseScale,
+        y: height * 0.5 + panY - pitchY * baseScale + pitchZ * 18,
+        depth: pitchZ
+      };
+    }
+
+    function resetFieldView() {
+      state.viewer.rotation_x = 0;
+      state.viewer.rotation_y = 0;
+      state.viewer.pan_x = 0;
+      state.viewer.pan_y = 0;
+      state.viewer.zoom_3d = 1;
+      if (fieldViewer) {
+        fieldViewer._salmon_has_view = false;
+      }
+      renderViewer(state);
+    }
+
+    function drawPointCloud(dataset) {
+      const canvas = document.getElementById('field3dCanvas');
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const { points } = buildPointCloud(dataset);
+      const size = state.viewer.point_size;
+      const nx = Math.max(1, dataset.grid?.nx || 1);
+      const ny = Math.max(1, dataset.grid?.ny || 1);
+      const nz = Math.max(1, dataset.grid?.nz || 1);
+      const projectedPoints = points.map((point) => {
+        const normalized = {
+          x: nx > 1 ? point.x / (nx - 1) : 0.5,
+          y: ny > 1 ? point.y / (ny - 1) : 0.5,
+          z: nz > 1 ? point.z / (nz - 1) : 0.5
+        };
+        return {
+          ...point,
+          ...projectPoint3D(normalized, state, canvas.width, canvas.height)
+        };
+      }).sort((a, b) => a.depth - b.depth);
+      projectedPoints.forEach((point) => {
+        ctx.beginPath();
+        ctx.fillStyle = point.value >= 0 ? 'rgba(181,65,47,0.65)' : 'rgba(45,106,159,0.65)';
+        ctx.arc(point.x, point.y, size, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      ctx.fillStyle = '#6b7280';
+      ctx.fillText(`Visible points: ${points.length}`, 12, 20);
+      ctx.fillText('Drag: rotate | Shift+Drag: pan | Wheel: zoom', 12, 38);
+    }
+
+    function extractSlice2D(dataset) {
+      const { nx, ny, nz } = dataset.grid;
+      const values = dataset.field.values;
+      const plane = state.viewer.slice_plane;
+      const index = state.viewer.slice_index;
+      const slice = [];
+      const getValue = (ix, iy, iz) => values[ix * ny * nz + iy * nz + iz];
+      if (plane === 'xy') {
+        for (let iy = 0; iy < ny; iy += 1) {
+          const row = [];
+          for (let ix = 0; ix < nx; ix += 1) {
+            row.push(getValue(ix, iy, Math.min(index, nz - 1)));
+          }
+          slice.push(row);
+        }
+      } else if (plane === 'xz') {
+        for (let iz = 0; iz < nz; iz += 1) {
+          const row = [];
+          for (let ix = 0; ix < nx; ix += 1) {
+            row.push(getValue(ix, Math.min(index, ny - 1), iz));
+          }
+          slice.push(row);
+        }
+      } else {
+        for (let iz = 0; iz < nz; iz += 1) {
+          const row = [];
+          for (let iy = 0; iy < ny; iy += 1) {
+            row.push(getValue(Math.min(index, nx - 1), iy, iz));
+          }
+          slice.push(row);
+        }
+      }
+      return slice;
+    }
+
+    function vectorLength(vector) {
+      return Math.sqrt((vector?.[0] || 0) ** 2 + (vector?.[1] || 0) ** 2 + (vector?.[2] || 0) ** 2);
+    }
+
+    function getSliceAxisMetadata(dataset) {
+      const { nx, ny, nz, origin, axes } = dataset.grid;
+      const plane = state.viewer.slice_plane;
+      const defs = {
+        xy: {
+          horizontal: { label: 'x', count: nx, step: vectorLength(axes[0]), origin: origin[0] || 0 },
+          vertical: { label: 'y', count: ny, step: vectorLength(axes[1]), origin: origin[1] || 0 }
+        },
+        xz: {
+          horizontal: { label: 'x', count: nx, step: vectorLength(axes[0]), origin: origin[0] || 0 },
+          vertical: { label: 'z', count: nz, step: vectorLength(axes[2]), origin: origin[2] || 0 }
+        },
+        yz: {
+          horizontal: { label: 'y', count: ny, step: vectorLength(axes[1]), origin: origin[1] || 0 },
+          vertical: { label: 'z', count: nz, step: vectorLength(axes[2]), origin: origin[2] || 0 }
+        }
+      };
+      return defs[plane] || defs.xy;
+    }
+
+    function drawSlice(dataset) {
+      const canvas = document.getElementById('sliceCanvas');
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const slice = extractSlice2D(dataset);
+      const flat = slice.flat();
+      const maxAbs = Math.max(...flat.map((value) => Math.abs(value)), 1e-12);
+      const rows = slice.length;
+      const cols = slice[0]?.length || 0;
+      const cellW = cols ? canvas.width / cols : canvas.width;
+      const cellH = rows ? canvas.height / rows : canvas.height;
+      for (let row = 0; row < rows; row += 1) {
+        for (let col = 0; col < cols; col += 1) {
+          const value = slice[row][col];
+          const alpha = Math.min(1, Math.abs(value) / maxAbs);
+          const fill = value >= 0 ? `rgba(181,65,47,${alpha})` : `rgba(45,106,159,${alpha})`;
+          ctx.fillStyle = fill;
+          ctx.fillRect(col * cellW, row * cellH, cellW, cellH);
+        }
+      }
+      const axisMeta = getSliceAxisMetadata(dataset);
+      const xEnd = axisMeta.horizontal.origin + Math.max(0, axisMeta.horizontal.count - 1) * axisMeta.horizontal.step;
+      const yEnd = axisMeta.vertical.origin + Math.max(0, axisMeta.vertical.count - 1) * axisMeta.vertical.step;
+      const tickCount = Math.min(5, Math.max(2, axisMeta.horizontal.count));
+      const yTickCount = Math.min(5, Math.max(2, axisMeta.vertical.count));
+      ctx.fillStyle = '#4b5563';
+      ctx.fillText(
+        `${axisMeta.horizontal.label} idx 0-${Math.max(0, axisMeta.horizontal.count - 1)} | ${axisMeta.horizontal.label} = ${axisMeta.horizontal.origin.toFixed(3)}-${xEnd.toFixed(3)}`,
+        12,
+        canvas.height - 8
+      );
+      ctx.fillText(
+        `${axisMeta.vertical.label} idx 0-${Math.max(0, axisMeta.vertical.count - 1)} | ${axisMeta.vertical.label} = ${axisMeta.vertical.origin.toFixed(3)}-${yEnd.toFixed(3)}`,
+        12,
+        16
+      );
+      for (let index = 0; index < tickCount; index += 1) {
+        const ratio = tickCount === 1 ? 0 : index / (tickCount - 1);
+        const tickIndex = Math.round(ratio * Math.max(0, axisMeta.horizontal.count - 1));
+        const tickValue = axisMeta.horizontal.origin + tickIndex * axisMeta.horizontal.step;
+        const x = cols > 1 ? tickIndex * cellW + cellW * 0.5 : canvas.width * 0.5;
+        ctx.fillText(`${axisMeta.horizontal.label}[${tickIndex}]=${tickValue.toFixed(2)}`, Math.max(4, x - 20), canvas.height - 24);
+      }
+      for (let index = 0; index < yTickCount; index += 1) {
+        const ratio = yTickCount === 1 ? 0 : index / (yTickCount - 1);
+        const tickIndex = Math.round(ratio * Math.max(0, axisMeta.vertical.count - 1));
+        const tickValue = axisMeta.vertical.origin + tickIndex * axisMeta.vertical.step;
+        const y = rows > 1 ? tickIndex * cellH + cellH * 0.5 : canvas.height * 0.5;
+        ctx.fillText(`${axisMeta.vertical.label}[${tickIndex}]=${tickValue.toFixed(2)}`, 8, Math.max(28, y));
+      }
+    }
+
+    function renderViewer(currentState = state) {
+      const summary = document.getElementById('plotSummary');
+      const dataset = getActiveDataset(currentState);
+      const displayDataset = getFrameAwareDataset(dataset, currentState);
+      if (!dataset) {
+        summary.textContent = 'No dataset selected.';
+        renderLineViewers(currentState);
+        return;
+      }
+      if (isLineDataset(dataset) && !(currentState.viewer.line_slots || []).some((slot) => slot.dataset_id === dataset.id)) {
+        const slotIndex = assignLineDatasetToSlot(dataset);
+        if (currentState.viewer.active_series?.length) {
+          currentState.viewer.line_slots[slotIndex].active_series = [...currentState.viewer.active_series];
+        }
+      }
+      if (isLineDataset(dataset)) {
+        const slot = getLineSlotForDataset(dataset.id, currentState);
+        if (slot) {
+          slot.y_scale = currentState.viewer.y_scale || slot.y_scale || 'linear';
+        }
+      }
+      if (dataset.kind === 'cube_sequence' && !dataset.frames.length) {
+        summary.textContent = `${dataset.sequence_label || dataset.filename} | cube_sequence (deferred)`;
+        renderLineViewers(currentState);
+        document.getElementById('field3dCanvas').getContext('2d').clearRect(0, 0, document.getElementById('field3dCanvas').width, document.getElementById('field3dCanvas').height);
+        document.getElementById('sliceCanvas').getContext('2d').clearRect(0, 0, document.getElementById('sliceCanvas').width, document.getElementById('sliceCanvas').height);
+        return;
+      }
+      summary.textContent = `${displayDataset.filename} | ${dataset.kind === 'cube_sequence' ? `${dataset.kind} (${currentState.viewer.frame_index + 1}/${dataset.frames.length})` : dataset.kind}`;
+      if (dataset.kind === 'cube_field' || dataset.kind === 'cube_sequence') {
+        renderLineViewers(currentState);
+        renderCubeSurface(displayDataset);
+        drawSlice(displayDataset);
+      } else {
+        renderLineViewers(currentState);
+        document.getElementById('field3dCanvas').getContext('2d').clearRect(0, 0, document.getElementById('field3dCanvas').width, document.getElementById('field3dCanvas').height);
+        document.getElementById('sliceCanvas').getContext('2d').clearRect(0, 0, document.getElementById('sliceCanvas').width, document.getElementById('sliceCanvas').height);
+        if (fieldViewer) {
+          fieldViewer.clear();
+          fieldViewer.render();
+          fieldViewer._salmon_has_view = false;
+        }
+      }
+    }
+
+    function renderRecordingFrame() {
+      const recordingCanvas = document.getElementById('recordingCanvas');
+      const ctx = recordingCanvas.getContext('2d');
+      const fieldCanvas = document.getElementById('field3dCanvas');
+      const sliceCanvas = document.getElementById('sliceCanvas');
+      ctx.clearRect(0, 0, recordingCanvas.width, recordingCanvas.height);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, recordingCanvas.width, recordingCanvas.height);
+      ctx.drawImage(fieldCanvas, 0, 0, recordingCanvas.width, Math.floor(recordingCanvas.height / 2));
+      ctx.drawImage(sliceCanvas, 0, Math.floor(recordingCanvas.height / 2), recordingCanvas.width, Math.floor(recordingCanvas.height / 2));
+    }
+
+    function updateControls() {
+      const dataset = getActiveDataset();
+      const isSequence = dataset?.kind === 'cube_sequence';
+      const activeSlot = isLineDataset(dataset) ? getLineSlotForDataset(dataset?.id) : getActiveLineSlot();
+      document.getElementById('yScaleSelect').value = activeSlot?.y_scale || state.viewer.y_scale || 'linear';
+      const seriesSelect = document.getElementById('seriesSelect');
+      seriesSelect.innerHTML = '';
+      if (dataset?.series?.length) {
+        const sourceActive = isLineDataset(dataset) ? (activeSlot?.active_series || []) : (state.viewer.active_series || []);
+        const activeNames = sourceActive.filter((name) => dataset.series.some((series) => series.name === name));
+        if (!activeNames.length) {
+          state.viewer.active_series = [dataset.series[0].name];
+          if (activeSlot && isLineDataset(dataset)) {
+            activeSlot.active_series = [dataset.series[0].name];
+          }
+        } else {
+          state.viewer.active_series = activeNames;
+          if (activeSlot && isLineDataset(dataset)) {
+            activeSlot.active_series = [...activeNames];
+          }
+        }
+        seriesSelect.innerHTML = dataset.series.map((series) => `<option value="${series.name}" ${state.viewer.active_series.includes(series.name) ? 'selected' : ''}>${series.name}</option>`).join('');
+        Array.from(seriesSelect.options || []).forEach((option) => {
+          option.selected = state.viewer.active_series.includes(option.value);
+        });
+      }
+      const cubeDataset = getFrameAwareDataset(dataset);
+      if (cubeDataset?.kind === 'cube_field') {
+        const maxIndex = cubeDataset.grid[state.viewer.slice_plane === 'xy' ? 'nz' : state.viewer.slice_plane === 'xz' ? 'ny' : 'nx'] - 1;
+        document.getElementById('sliceIndex').max = String(Math.max(0, maxIndex));
+        document.getElementById('sliceIndex').value = String(Math.min(state.viewer.slice_index, Math.max(0, maxIndex)));
+        document.getElementById('sliceIndexLabel').textContent = document.getElementById('sliceIndex').value;
+      } else {
+        document.getElementById('sliceIndex').max = '0';
+        document.getElementById('sliceIndex').value = '0';
+        document.getElementById('sliceIndexLabel').textContent = '0';
+      }
+      const frameSlider = document.getElementById('frameSlider');
+      const frameLabel = document.getElementById('frameLabel');
+      frameSlider.max = String(Math.max(0, (isSequence ? dataset.frames.length : 1) - 1));
+      frameSlider.value = String(Math.min(state.viewer.frame_index, Number(frameSlider.max)));
+      frameLabel.textContent = isSequence ? `${Number(frameSlider.value) + 1} / ${dataset.frames.length}` : '0 / 0';
+      document.getElementById('thresholdLabel').textContent = `${state.viewer.threshold_ratio.toFixed(2)} x max(|value|)`;
+      document.getElementById('isoValueLabel').textContent = `${state.viewer.iso_ratio.toFixed(2)} x max(|value|)`;
+      document.getElementById('opacityLabel').textContent = `${state.viewer.iso_opacity.toFixed(2)}`;
+      document.getElementById('pointSizeLabel').textContent = `${state.viewer.point_size} px`;
+    }
+
+    function stepAnimation(delta = 1) {
+      const dataset = getActiveDataset();
+      if (!dataset || dataset.kind !== 'cube_sequence' || !dataset.frames.length) {
+        return;
+      }
+      const frameCount = dataset.frames.length;
+      state.viewer.frame_index = (state.viewer.frame_index + delta + frameCount) % frameCount;
+      updateControls();
+      renderViewer(state);
+    }
+
+    function pauseAnimation() {
+      state.viewer.is_playing = false;
+      if (state.viewer.animation_handle) {
+        clearInterval(state.viewer.animation_handle);
+        state.viewer.animation_handle = null;
+      }
+    }
+
+    function playAnimation() {
+      const dataset = getActiveDataset();
+      if (!dataset || dataset.kind !== 'cube_sequence' || dataset.frames.length < 2) {
+        return;
+      }
+      pauseAnimation();
+      state.viewer.is_playing = true;
+      const intervalMs = Math.max(40, Math.round(1000 / Math.max(1, state.viewer.fps)));
+      state.viewer.animation_handle = setInterval(() => {
+        stepAnimation(1);
+        if (state.viewer.is_recording) {
+          renderRecordingFrame();
+        }
+      }, intervalMs);
+    }
+
+    function recordAnimation() {
+      const dataset = getActiveDataset();
+      if (!dataset || dataset.kind !== 'cube_sequence') {
+        return false;
+      }
+      const recordingCanvas = document.getElementById('recordingCanvas');
+      if (typeof MediaRecorder === 'undefined' || typeof recordingCanvas.captureStream !== 'function') {
+        return false;
+      }
+      pauseAnimation();
+      state.viewer.record_chunks = [];
+      renderRecordingFrame();
+      const stream = recordingCanvas.captureStream(Math.max(1, state.viewer.fps));
+      const recorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          state.viewer.record_chunks.push(event.data);
+        }
+      };
+      recorder.onstop = () => {
+        const blob = new Blob(state.viewer.record_chunks, { type: 'video/webm' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `${dataset.filename.replace(/[^A-Za-z0-9._-]/g, '_')}.webm`;
+        link.click();
+        URL.revokeObjectURL(url);
+        state.viewer.is_recording = false;
+        state.viewer.media_recorder = null;
+        state.viewer.record_chunks = [];
+        document.getElementById('ingestSummary').textContent = 'Recording exported as WebM.';
+      };
+      state.viewer.is_recording = true;
+      state.viewer.media_recorder = recorder;
+      recorder.start();
+      let framesCaptured = 0;
+      const totalFrames = Math.max(1, dataset.frames.length);
+      const intervalMs = Math.max(40, Math.round(1000 / Math.max(1, state.viewer.fps)));
+      state.viewer.animation_handle = setInterval(() => {
+        stepAnimation(1);
+        renderRecordingFrame();
+        framesCaptured += 1;
+        if (framesCaptured >= totalFrames) {
+          pauseAnimation();
+          if (state.viewer.media_recorder && state.viewer.media_recorder.state !== 'inactive') {
+            state.viewer.media_recorder.stop();
+          }
+        }
+      }, intervalMs);
+      state.viewer.is_playing = true;
+      return true;
+    }
+
+    async function loadSelectedFiles(files, mode = 'file') {
+      const parsed = [];
+      const skipped = [];
+      document.getElementById('ingestSummary').textContent = `Loading ${files.length} file(s)...`;
+      for (const file of files) {
+        try {
+          if (String(file.name || '').toLowerCase().endsWith('.cube')) {
+            skipped.push(`${file.name}: cube files must be loaded from Select Directory`);
+            continue;
+          }
+          const text = await readFileText(file);
+          const dataset = parseFileByKind(file, text, mode);
+          if (dataset.kind === 'cube_field' || dataset.kind === 'cube_sequence' || dataset.kind === 'unknown') {
+            skipped.push(`${file.name}: unsupported file type for Select Files`);
+            continue;
+          }
+          parsed.push(dataset);
+        } catch (error) {
+          skipped.push(`${file.name}: ${error.message}`);
+        }
+      }
+      state.datasets = [...state.datasets, ...parsed];
+      if (!state.viewer.active_dataset_id && state.datasets[0]) {
+        state.viewer.active_dataset_id = state.datasets[0].id;
+        state.viewer.active_series = state.datasets[0].series.slice(0, 1).map((entry) => entry.name);
+      }
+      state.metadata.source_files.push(...files.map((file) => file.name));
+      document.getElementById('ingestSummary').textContent = skipped.length
+        ? `${state.datasets.length} dataset(s) loaded. Skipped ${skipped.length} file(s).`
+        : `${state.datasets.length} dataset(s) loaded.`;
+      updateControls();
+      renderDatasetList();
+      renderViewer(state);
+    }
+
+    async function loadCubeDirectoryFiles(files) {
+      const cubeFiles = files.filter((file) => String(file.name || '').toLowerCase().endsWith('.cube'));
+      const ignoredCount = files.length - cubeFiles.length;
+      const groups = groupSequentialFiles(cubeFiles);
+      const parsed = [];
+      const skipped = [];
+      document.getElementById('ingestSummary').textContent = `Scanning ${cubeFiles.length} cube file(s)...`;
+      for (const group of groups) {
+        if (String(group.extension || '').toLowerCase() === '.cube' && group.files.length > 1) {
+          parsed.push(buildDeferredCubeSequenceDataset(
+            group.files,
+            group.sequenceId || `${group.prefix}${group.extension}`,
+            group.seriesLabel || group.prefix
+          ));
+          continue;
+        }
+        const groupFrames = [];
+        for (let index = 0; index < group.files.length; index += 1) {
+          const file = group.files[index];
+          try {
+            const text = await readFileText(file);
+            const dataset = parseFileByKind(file, text, 'directory', group.sequenceId || `${group.prefix}${group.extension}`, index);
+            if (dataset.kind === 'unknown') {
+              skipped.push(`${file.name}: unsupported file type`);
+              continue;
+            }
+            if (dataset.kind === 'cube_field' && group.files.length > 1) {
+              groupFrames.push(dataset);
+            } else {
+              parsed.push(dataset);
+            }
+          } catch (error) {
+            skipped.push(`${file.name}: ${error.message}`);
+          }
+        }
+        if (groupFrames.length) {
+          parsed.push(buildCubeSequenceDataset(
+            groupFrames,
+            group.sequenceId || `${group.prefix}${group.extension}`,
+            group.seriesLabel || group.prefix
+          ));
+        }
+      }
+      const previousActive = getActiveDataset();
+      const replacedKeys = new Set(parsed.map((dataset) => getDatasetSourceKey(dataset)));
+      state.datasets = [
+        ...state.datasets.filter((dataset) => {
+          if (dataset.source?.mode !== 'directory') return true;
+          return !replacedKeys.has(getDatasetSourceKey(dataset));
+        }),
+        ...parsed
+      ];
+      if (previousActive && previousActive.source?.mode === 'directory' && replacedKeys.has(getDatasetSourceKey(previousActive))) {
+        state.viewer.active_dataset_id = '';
+        state.viewer.active_series = [];
+        state.viewer.frame_index = 0;
+      } else if (!previousActive || previousActive.source?.mode === 'directory') {
+        state.viewer.active_dataset_id = '';
+        state.viewer.active_series = [];
+        state.viewer.frame_index = 0;
+      }
+      state.metadata.source_directories.push('directory-upload');
+      const skippedTotal = skipped.length + ignoredCount;
+      document.getElementById('ingestSummary').textContent = skippedTotal
+        ? `${groups.length} cube sequence group(s) loaded from directory. Skipped ${skippedTotal} file(s).`
+        : `${groups.length} cube sequence group(s) loaded from directory.`;
+      updateControls();
+      renderDatasetList();
+      renderViewer(state);
+    }
+
+    async function loadDirectoryFiles(files) {
+      return loadCubeDirectoryFiles(files);
+    }
+
+    function exportActiveDatasetAsCsv() {
+      const dataset = getActiveDataset();
+      if (!dataset || !dataset.series.length) return '';
+      const selectedSeries = dataset.series.filter((entry) => state.viewer.active_series.includes(entry.name));
+      const series = selectedSeries.length ? selectedSeries : dataset.series.slice(0, 1);
+      const headers = ['x', ...series.map((entry) => entry.name)];
+      const rows = series[0].values.map((point, rowIndex) => [point[0], ...series.map((entry) => entry.values[rowIndex][1])]);
+      return [headers.join(','), ...rows.map((row) => row.join(','))].join('\n');
+    }
+
+    function exportCurrentPlotAsPng() {
+      return true;
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('selectFilesButton').addEventListener('click', () => document.getElementById('fileInput').click());
+      document.getElementById('selectDirectoryButton').addEventListener('click', () => document.getElementById('directoryInput').click());
+      document.getElementById('fileInput').addEventListener('change', async (event) => {
+        const files = [...event.target.files];
+        try {
+          if (files.length) {
+            await loadSelectedFiles(files, 'file');
+          } else {
+            document.getElementById('ingestSummary').textContent = 'No files selected.';
+          }
+        } catch (error) {
+          document.getElementById('ingestSummary').textContent = `File load failed: ${error.message}`;
+        }
+        event.target.value = '';
+      });
+      document.getElementById('directoryInput').addEventListener('change', async (event) => {
+        const files = [...event.target.files];
+        try {
+          if (files.length) {
+            await loadCubeDirectoryFiles(files);
+          } else {
+            document.getElementById('ingestSummary').textContent = 'No directory items selected.';
+          }
+        } catch (error) {
+          document.getElementById('ingestSummary').textContent = `Directory load failed: ${error.message}`;
+        }
+        event.target.value = '';
+      });
+      document.getElementById('seriesSelect').addEventListener('change', (event) => {
+        const selectedValues = Array.from(event.target.selectedOptions || []).map((option) => option.value);
+        state.viewer.active_series = selectedValues.length ? selectedValues : [];
+        const activeSlot = getActiveLineSlot();
+        if (activeSlot) {
+          activeSlot.active_series = [...state.viewer.active_series];
+        }
+        renderViewer(state);
+      });
+      document.getElementById('yScaleSelect').addEventListener('change', (event) => {
+        state.viewer.y_scale = event.target.value;
+        const activeSlot = getActiveLineSlot();
+        if (activeSlot) {
+          activeSlot.y_scale = event.target.value;
+        }
+        renderViewer(state);
+      });
+      document.getElementById('slicePlane').addEventListener('change', (event) => {
+        state.viewer.slice_plane = event.target.value;
+        updateControls();
+        renderViewer(state);
+      });
+      document.getElementById('sliceIndex').addEventListener('input', (event) => {
+        state.viewer.slice_index = Number(event.target.value);
+        document.getElementById('sliceIndexLabel').textContent = event.target.value;
+        renderViewer(state);
+      });
+      document.getElementById('thresholdSlider').addEventListener('input', (event) => {
+        state.viewer.threshold_ratio = Number(event.target.value) / 100;
+        updateControls();
+        renderViewer(state);
+      });
+      document.getElementById('isoValueSlider').addEventListener('input', (event) => {
+        state.viewer.iso_ratio = Number(event.target.value) / 100;
+        updateControls();
+        renderViewer(state);
+      });
+      document.getElementById('opacitySlider').addEventListener('input', (event) => {
+        state.viewer.iso_opacity = Number(event.target.value) / 100;
+        updateControls();
+        renderViewer(state);
+      });
+      document.getElementById('pointSizeSlider').addEventListener('input', (event) => {
+        state.viewer.point_size = Number(event.target.value);
+        updateControls();
+        renderViewer(state);
+      });
+      document.getElementById('resetViewButton').addEventListener('click', () => {
+        resetFieldView();
+      });
+      document.getElementById('frameSlider').addEventListener('input', (event) => {
+        state.viewer.frame_index = Number(event.target.value);
+        updateControls();
+        renderViewer(state);
+      });
+      document.getElementById('prevFrameButton').addEventListener('click', () => stepAnimation(-1));
+      document.getElementById('nextFrameButton').addEventListener('click', () => stepAnimation(1));
+      document.getElementById('playButton').addEventListener('click', () => playAnimation());
+      document.getElementById('pauseButton').addEventListener('click', () => pauseAnimation());
+      document.getElementById('recordButton').addEventListener('click', () => {
+        recordAnimation();
+      });
+      document.getElementById('exportCsvButton').addEventListener('click', () => {
+        exportActiveDatasetAsCsv();
+      });
+      document.getElementById('exportPngButton').addEventListener('click', () => {
+        exportCurrentPlotAsPng();
+      });
+      const fieldCanvas = document.getElementById('field3dCanvas');
+      let dragState = null;
+      fieldCanvas.addEventListener('pointerdown', (event) => {
+        dragState = {
+          x: event.clientX,
+          y: event.clientY,
+          shiftKey: event.shiftKey
+        };
+        fieldCanvas.setPointerCapture?.(event.pointerId);
+      });
+      fieldCanvas.addEventListener('pointermove', (event) => {
+        if (!dragState) return;
+        const dx = event.clientX - dragState.x;
+        const dy = event.clientY - dragState.y;
+        dragState.x = event.clientX;
+        dragState.y = event.clientY;
+        dragState.shiftKey = event.shiftKey;
+        if (event.shiftKey || dragState.shiftKey) {
+          state.viewer.pan_x += dx;
+          state.viewer.pan_y += dy;
+        } else {
+          state.viewer.rotation_y += dx * 0.01;
+          state.viewer.rotation_x += dy * 0.01;
+        }
+        renderViewer(state);
+      });
+      fieldCanvas.addEventListener('pointerup', (event) => {
+        dragState = null;
+        fieldCanvas.releasePointerCapture?.(event.pointerId);
+      });
+      fieldCanvas.addEventListener('pointerleave', () => {
+        dragState = null;
+      });
+      fieldCanvas.addEventListener('wheel', (event) => {
+        event.preventDefault();
+        const factor = event.deltaY < 0 ? 1.1 : 0.9;
+        state.viewer.zoom_3d = Math.min(6, Math.max(0.2, state.viewer.zoom_3d * factor));
+        renderViewer(state);
+      }, { passive: false });
+      updateControls();
+      renderDatasetList();
+      renderViewer(state);
+    });
+  </script>
+</body>
+</html>
