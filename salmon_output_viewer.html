@@ -209,9 +209,18 @@
       <div class="viewer-grid">
         <div class="canvas-panel">
           <div id="plotArea" class="plot-shell"></div>
-          <div class="heatmap-row">
-            <canvas id="heatmapCanvas" class="hidden heatmap-main-canvas" width="760" height="420"></canvas>
-            <canvas id="colorbarCanvas" class="hidden colorbar-canvas" width="84" height="420"></canvas>
+          <div id="mapViewerGrid" class="viewer-grid hidden">
+            <div class="canvas-panel">
+              <h3>Viewer 1</h3>
+              <div class="heatmap-row">
+                <canvas id="heatmapCanvas" class="hidden heatmap-main-canvas" width="760" height="420"></canvas>
+                <canvas id="colorbarCanvas" class="hidden colorbar-canvas" width="84" height="420"></canvas>
+              </div>
+            </div>
+            <div class="canvas-panel">
+              <h3>Viewer 2</h3>
+              <div id="mapMetaPanel" class="summary">No map dataset assigned.</div>
+            </div>
           </div>
         </div>
         <div class="canvas-panel">
@@ -248,7 +257,7 @@
           <option value="log10">Log10</option>
         </select>
       </div>
-      <div class="control-block">
+      <div class="control-block hidden">
         <label for="slicePlane">Slice Plane</label>
         <select id="slicePlane">
           <option value="xy">xy</option>
@@ -265,15 +274,14 @@
           <button type="button" id="playButton" class="button button-primary">Play</button>
           <button type="button" id="pauseButton" class="button">Pause</button>
           <button type="button" id="nextFrameButton" class="button">Next</button>
-          <button type="button" id="recordButton" class="button">Record</button>
         </div>
       </div>
-      <div class="control-block">
+      <div class="control-block hidden">
         <label for="sliceIndex">Slice Index</label>
         <input id="sliceIndex" type="range" min="0" max="0" value="0">
         <div id="sliceIndexLabel" class="summary">0</div>
       </div>
-      <div class="control-block">
+      <div class="control-block hidden">
         <label for="thresholdSlider">Threshold</label>
         <input id="thresholdSlider" type="range" min="0" max="100" value="15">
         <div id="thresholdLabel" class="summary">0.15 x max(|value|)</div>
@@ -288,7 +296,7 @@
         <input id="opacitySlider" type="range" min="10" max="100" value="80">
         <div id="opacityLabel" class="summary">0.80</div>
       </div>
-      <div class="control-block">
+      <div class="control-block hidden">
         <label for="pointSizeSlider">Point Size</label>
         <input id="pointSizeSlider" type="range" min="1" max="8" value="3">
         <div id="pointSizeLabel" class="summary">3 px</div>
@@ -1556,6 +1564,8 @@
     function renderViewer(currentState = state) {
       const summary = document.getElementById('plotSummary');
       const plotArea = document.getElementById('plotArea');
+      const mapViewerGrid = document.getElementById('mapViewerGrid');
+      const mapMetaPanel = document.getElementById('mapMetaPanel');
       const heatmapCanvas = document.getElementById('heatmapCanvas');
       const dataset = getActiveDataset(currentState);
       const displayDataset = getFrameAwareDataset(dataset, currentState);
@@ -1564,6 +1574,7 @@
       if (!dataset) {
         summary.textContent = 'No dataset selected.';
         plotArea.classList.remove('hidden');
+        mapViewerGrid.classList.add('hidden');
         heatmapCanvas.classList.add('hidden');
         colorbarCanvas.classList.add('hidden');
         renderLineViewers(currentState);
@@ -1584,6 +1595,7 @@
       if (dataset.kind === 'cube_sequence' && !dataset.frames.length) {
         summary.textContent = `${dataset.sequence_label || dataset.filename} | cube_sequence (deferred)`;
         plotArea.classList.remove('hidden');
+        mapViewerGrid.classList.add('hidden');
         heatmapCanvas.classList.add('hidden');
         colorbarCanvas.classList.add('hidden');
         renderLineViewers(currentState);
@@ -1594,6 +1606,7 @@
       summary.textContent = `${(displayMapDataset || displayDataset).filename} | ${dataset.kind === 'cube_sequence' || dataset.kind === 'xy_map_sequence' ? `${dataset.kind} (${currentState.viewer.frame_index + 1}/${dataset.frames.length})` : dataset.kind}`;
       if (dataset.kind === 'cube_field' || dataset.kind === 'cube_sequence') {
         plotArea.classList.remove('hidden');
+        mapViewerGrid.classList.add('hidden');
         heatmapCanvas.classList.add('hidden');
         colorbarCanvas.classList.add('hidden');
         renderLineViewers(currentState);
@@ -1601,9 +1614,11 @@
         drawSlice(displayDataset);
       } else if (dataset.kind === 'xy_map_frame' || dataset.kind === 'xy_map_sequence') {
         plotArea.classList.add('hidden');
+        mapViewerGrid.classList.remove('hidden');
         heatmapCanvas.classList.remove('hidden');
         colorbarCanvas.classList.remove('hidden');
         drawHeatmapFrame(displayMapDataset, currentState.viewer.active_field || displayMapDataset.field_names?.[0] || '');
+        mapMetaPanel.textContent = `${displayMapDataset.title || displayMapDataset.filename} | ${currentState.viewer.active_field || displayMapDataset.field_names?.[0] || ''} | frame ${currentState.viewer.frame_index + 1}/${dataset.frames?.length || 1}`;
         document.getElementById('field3dCanvas').getContext('2d').clearRect(0, 0, document.getElementById('field3dCanvas').width, document.getElementById('field3dCanvas').height);
         if (fieldViewer) {
           fieldViewer.clear();
@@ -1612,6 +1627,7 @@
         }
       } else {
         plotArea.classList.remove('hidden');
+        mapViewerGrid.classList.add('hidden');
         heatmapCanvas.classList.add('hidden');
         colorbarCanvas.classList.add('hidden');
         renderLineViewers(currentState);
