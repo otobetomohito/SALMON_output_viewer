@@ -1481,7 +1481,12 @@
           const ratio = Math.min(1, Math.abs(value) / maxAbs);
           const alpha = 0.15 + ratio * 0.85;
           ctx.fillStyle = value >= 0 ? `rgba(181,65,47,${alpha})` : `rgba(45,106,159,${alpha})`;
-          ctx.fillRect(plotX + ix * cellW, plotY + iy * cellH, Math.ceil(cellW), Math.ceil(cellH));
+          ctx.fillRect(
+            plotX + ix * cellW,
+            getHeatmapCanvasY(plotY, plotHeight, ny, iy),
+            Math.ceil(cellW),
+            Math.ceil(cellH)
+          );
         }
       }
       ctx.strokeStyle = '#9ca3af';
@@ -1499,7 +1504,7 @@
         ctx.fillText(`${xValues[tick].toFixed(2)}`, x - 14, canvas.height - 20);
       });
       yTickIndexes.forEach((tick) => {
-        const y = plotY + (ny > 1 ? (tick / (ny - 1)) * plotHeight : plotHeight * 0.5);
+        const y = getHeatmapTickY(plotY, plotHeight, ny, tick);
         ctx.beginPath();
         ctx.moveTo(plotX - 6, y);
         ctx.lineTo(plotX, y);
@@ -1535,6 +1540,20 @@
       const plotX = padLeft + (availableWidth - plotWidth) * 0.5;
       const plotY = padTop + (availableHeight - plotHeight) * 0.5;
       return { padLeft, padRight, padTop, padBottom, plotWidth, plotHeight, plotX, plotY };
+    }
+
+    function getHeatmapCanvasY(plotY, plotHeight, ny, index) {
+      if (ny <= 1) {
+        return plotY;
+      }
+      return plotY + plotHeight - ((index + 1) / ny) * plotHeight;
+    }
+
+    function getHeatmapTickY(plotY, plotHeight, ny, index) {
+      if (ny <= 1) {
+        return plotY + plotHeight * 0.5;
+      }
+      return plotY + plotHeight - (index / (ny - 1)) * plotHeight;
     }
 
     function getHeatmapRange(sequenceDataset, frameDataset, fieldName, currentState = state) {
