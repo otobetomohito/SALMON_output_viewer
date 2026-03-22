@@ -370,10 +370,12 @@
       const lines = String(text || '').split(/\r?\n/);
       const head = lines.slice(0, 6).join('\n');
       const extendedHead = lines.slice(0, 12).join('\n');
+      const normalizedExtendedHead = extendedHead.replace(/\r?\n/g, ' ').replace(/\s+/g, ' ');
       const isSsbeHeader = /Real time calculation by SBE/i.test(head)
         || /Ac_ext|E_ext|Ac_tot|E_tot|Jm/.test(head);
+      const planeMapMatch = lower.match(/_(xy|yz|zx)_\d+\.data$/);
       if (/_ovlp\.data$/.test(lower) || /#\s*Projection/i.test(head)) return 'ovlp_table';
-      if (/_xy_\d+\.data$/.test(lower) && /#\s*1:x\[.*?\]\s+2:y\[.*?\]/i.test(extendedHead)) return 'xy_map_frame';
+      if (planeMapMatch && /#\s*1:[a-z]+\[.*?\]\s+2:[a-z]+\[.*?\]/i.test(normalizedExtendedHead)) return 'xy_map_frame';
       if (isSsbeHeader && /_sbe_rt\.data$/.test(lower)) return 'ssbe_table';
       if (/_at_point_rt\.data$/.test(lower) && /#\s*E:\s*Electric field/i.test(head)) return 'maxwell_point_rt';
       if (/_integral_rt\.data$/.test(lower) && /#\s*IE:\s*Plane integration of electric field/i.test(head)) return 'maxwell_plane_integral_rt';
@@ -452,11 +454,22 @@
     }
 
     function extractHeaderLabels(text) {
-      const commentLines = String(text || '')
+      const commentLines = [];
+      String(text || '')
         .split(/\r?\n/)
         .map((line) => line.trim())
-        .filter((line) => line.startsWith('#'));
-      const latest = commentLines[commentLines.length - 1] || '';
+        .forEach((line) => {
+          if (!line) return;
+          if (line.startsWith('#')) {
+            commentLines.push(line);
+            return;
+          }
+          const isDataLine = line.split(/\s+/).every((token) => Number.isFinite(Number(token)));
+          if (!isDataLine && commentLines.length) {
+            commentLines[commentLines.length - 1] += ` ${line}`;
+          }
+        });
+      const latest = commentLines.slice(-3).join(' ').replace(/\s+/g, ' ') || commentLines[commentLines.length - 1] || '';
       const matches = [...latest.matchAll(/\d+:(.+?)\[(.*?)\]/g)];
       return matches.map((match) => ({
         label: match[1].trim(),
@@ -602,12 +615,17 @@
       };
     }
 
+    function getPlaneFromFilename(filename) {
+      return String(filename || '').toLowerCase().match(/_(xy|yz|zx)_\d+\.data$/)?.[1] || 'xy';
+    }
+
     function parseXyMapFrame(text, filename) {
       const rows = tokenizeDataLines(text);
       const labels = extractHeaderLabels(text);
       if (!rows.length || rows[0].length < 3) {
         throw new Error(`XY map file is empty or malformed: ${filename}`);
       }
+      const plane = getPlaneFromFilename(filename);
       const xValues = [...new Set(rows.map((row) => row[0]))].sort((a, b) => a - b);
       const yValues = [...new Set(rows.map((row) => row[1]))].sort((a, b) => a - b);
       const fields = {};
@@ -624,6 +642,7 @@
         kind: 'xy_map_frame',
         filename,
         title: 'XY Map Frame',
+        plane,
         source: {
           mode: 'file',
           sequence_id: null,
@@ -818,6 +837,7 @@
         filename: sequenceId,
         title: resolvedSequenceLabel,
         sequence_label: resolvedSequenceLabel,
+        plane: first?.plane || 'xy',
         source: {
           mode: 'file',
           sequence_id: sequenceId,
@@ -1618,7 +1638,7 @@
         heatmapCanvas.classList.remove('hidden');
         colorbarCanvas.classList.remove('hidden');
         drawHeatmapFrame(displayMapDataset, currentState.viewer.active_field || displayMapDataset.field_names?.[0] || '');
-        mapMetaPanel.textContent = `${displayMapDataset.title || displayMapDataset.filename} | ${currentState.viewer.active_field || displayMapDataset.field_names?.[0] || ''} | frame ${currentState.viewer.frame_index + 1}/${dataset.frames?.length || 1}`;
+        mapMetaPanel.textContent = `${displayMapDataset.title || displayMapDataset.filename} | plane ${displayMapDataset.plane || dataset.plane || 'xy'} | ${currentState.viewer.active_field || displayMapDataset.field_names?.[0] || ''} | frame ${currentState.viewer.frame_index + 1}/${dataset.frames?.length || 1}`;
         document.getElementById('field3dCanvas').getContext('2d').clearRect(0, 0, document.getElementById('field3dCanvas').width, document.getElementById('field3dCanvas').height);
         if (fieldViewer) {
           fieldViewer.clear();
@@ -1924,7 +1944,7 @@
     }
 
     async function loadMapDirectoryFiles(files) {
-      const dataFiles = files.filter((file) => /_xy_\d+\.data$/i.test(String(file.name || '')));
+      const dataFiles = files.filter((file) => /_(xy|yz|zx)_\d+\.data$/i.test(String(file.name || '')));
       const ignoredCount = files.length - dataFiles.length;
       const groups = groupSequentialFiles(dataFiles);
       const parsed = [];
