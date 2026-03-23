@@ -240,6 +240,10 @@
         <select id="seriesSelect" multiple size="8"></select>
       </div>
       <div class="control-block">
+        <label for="mapDatasetSelect">Map Dataset</label>
+        <select id="mapDatasetSelect"></select>
+      </div>
+      <div class="control-block">
         <label for="fieldSelect">Map Field</label>
         <select id="fieldSelect"></select>
       </div>
@@ -974,6 +978,10 @@
       return !!dataset && (dataset.kind === 'xy_map_frame' || dataset.kind === 'xy_map_sequence');
     }
 
+    function getMapDatasets(currentState = state) {
+      return (currentState.datasets || []).filter((dataset) => isXyMapDataset(dataset));
+    }
+
     function getDatasetById(datasetId, currentState = state) {
       return currentState.datasets.find((dataset) => dataset.id === datasetId) || null;
     }
@@ -1699,9 +1707,16 @@
       document.getElementById('yScaleSelect').value = activeSlot?.y_scale || state.viewer.y_scale || 'linear';
       document.getElementById('rangeModeSelect').value = state.viewer.heatmap_range_mode || 'fixed_sequence';
       const seriesSelect = document.getElementById('seriesSelect');
+      const mapDatasetSelect = document.getElementById('mapDatasetSelect');
       const fieldSelect = document.getElementById('fieldSelect');
       seriesSelect.innerHTML = '';
+      mapDatasetSelect.innerHTML = '';
       fieldSelect.innerHTML = '';
+      const mapDatasets = getMapDatasets();
+      mapDatasetSelect.innerHTML = mapDatasets.length
+        ? mapDatasets.map((entry) => `<option value="${entry.id}" ${entry.id === state.viewer.active_dataset_id ? 'selected' : ''}>${entry.sequence_label || entry.title || entry.filename}</option>`).join('')
+        : '<option value="">No map datasets loaded</option>';
+      mapDatasetSelect.disabled = mapDatasets.length === 0;
       if (dataset?.series?.length) {
         const sourceActive = isLineDataset(dataset) ? (activeSlot?.active_series || []) : (state.viewer.active_series || []);
         const activeNames = sourceActive.filter((name) => dataset.series.some((series) => series.name === name));
@@ -2100,6 +2115,19 @@
       });
       document.getElementById('fieldSelect').addEventListener('change', (event) => {
         state.viewer.active_field = event.target.value;
+        renderViewer(state);
+      });
+      document.getElementById('mapDatasetSelect').addEventListener('change', async (event) => {
+        const nextDataset = state.datasets.find((dataset) => dataset.id === event.target.value);
+        if (!nextDataset) {
+          return;
+        }
+        state.viewer.active_dataset_id = nextDataset.id;
+        await ensureDatasetMaterialized(nextDataset);
+        state.viewer.active_field = nextDataset.field_names?.[0] || '';
+        state.viewer.frame_index = 0;
+        updateControls();
+        renderDatasetList();
         renderViewer(state);
       });
       document.getElementById('rangeModeSelect').addEventListener('change', (event) => {
